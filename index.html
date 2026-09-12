@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Shottrack Dose Tracker",
+  "schemaVersion": 1,
+  "description": "Shotsy-style Mounjaro dose & weight tracker: logs weekly doses, estimates active tirzepatide from a ~5-day half-life, charts weight colored by dose, imports/exports CSV and Excel.",
+  "mcpTools": [],
+  "mcpServerNames": []
+}
+</script>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShotTrack — Dose &amp; Weight Tracker</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --accent:         #2a78d6;
+    --accent-ink:     #ffffff;
+    --med-line:       #4a3aa7;
+    --good:           #006300;
+    --bad:            #d03b3b;
+    --ghost:          rgba(11,11,11,0.045);
+    --neutral-mid:    #f0efec;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --accent:         #3987e5;
+    --accent-ink:     #0b0b0b;
+    --med-line:       #9085e9;
+    --good:           #0ca30c;
+    --bad:            #e66767;
+    --ghost:          rgba(255,255,255,0.06);
+    --neutral-mid:    #383835;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 20px 20px 48px; }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 4px 0 18px;
+  }
+  .logo {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: var(--accent); color: var(--accent-ink);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex: none;
+  }
+  h1 { font-size: 19px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--text-muted); font-size: 12.5px; margin-top: 1px; }
+  .header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* ---------- generic controls ---------- */
+  .btn {
+    appearance: none; border: 1px solid var(--border); background: var(--surface-1);
+    color: var(--text-primary); border-radius: 9px; padding: 7px 13px;
+    font: inherit; font-size: 13px; font-weight: 550; cursor: pointer;
+    transition: background .12s;
+  }
+  .btn:hover { background: var(--ghost); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.primary:hover { filter: brightness(1.07); }
+  .btn.subtle { border-color: transparent; background: transparent; color: var(--text-secondary); }
+  .btn.subtle:hover { background: var(--ghost); }
+  .btn.danger-text { color: var(--bad); }
+  .btn.icon { padding: 7px 9px; }
+  label { display: block; font-size: 12px; font-weight: 550; color: var(--text-secondary); margin: 0 0 4px; }
+  input, select, textarea {
+    width: 100%; font: inherit; font-size: 13.5px;
+    color: var(--text-primary); background: var(--page);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  /* ---------- filter row ---------- */
+  .filter-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 2px 0 14px; }
+  .filter-row .label { font-size: 12px; color: var(--text-muted); margin-right: 2px; }
+  .seg {
+    appearance: none; border: 1px solid transparent; background: transparent;
+    color: var(--text-secondary); font: inherit; font-size: 12.5px; font-weight: 550;
+    padding: 5px 11px; border-radius: 8px; cursor: pointer;
+  }
+  .seg:hover { background: var(--ghost); }
+  .seg[aria-pressed="true"] {
+    background: var(--surface-1); border-color: var(--border); color: var(--text-primary);
+  }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 13px 15px 12px;
+  }
+  .tile .t-label { font-size: 12px; font-weight: 550; color: var(--text-secondary); }
+  .tile .t-value { font-size: 27px; font-weight: 650; letter-spacing: -0.015em; margin-top: 3px; }
+  .tile .t-value .unit { font-size: 14px; font-weight: 550; color: var(--text-muted); margin-left: 2px; }
+  .tile .t-delta { font-size: 12.5px; margin-top: 3px; color: var(--text-muted); }
+  .tile .t-delta .d-good { color: var(--good); font-weight: 600; }
+  .tile .t-delta .d-bad  { color: var(--bad);  font-weight: 600; }
+
+  /* ---------- cards / charts ---------- */
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 14px;
+  }
+  .card h2 { font-size: 14.5px; font-weight: 650; margin: 0; }
+  .card .card-sub { font-size: 12.5px; color: var(--text-muted); margin: 2px 0 0; }
+  .card-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .card-head .spacer { margin-left: auto; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding-top: 2px; }
+  .legend .key { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .legend .swatch-line { width: 14px; height: 0; border-top: 3px solid; border-radius: 2px; }
+  .legend .swatch-dash { width: 14px; height: 0; border-top: 3px dashed; }
+  .chart-box { position: relative; }
+  .chart-box svg { display: block; width: 100%; height: auto; }
+  .empty-note { color: var(--text-muted); font-size: 13px; padding: 26px 0; text-align: center; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; z-index: 5;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 9px; padding: 8px 11px; min-width: 130px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.12); display: none;
+  }
+  .tooltip .tt-date { font-size: 11.5px; color: var(--text-muted); margin-bottom: 3px; }
+  .tooltip .tt-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; margin-top: 2px; }
+  .tooltip .tt-key { width: 12px; height: 0; border-top: 3px solid; border-radius: 2px; flex: none; }
+  .tooltip .tt-val { font-weight: 650; color: var(--text-primary); }
+  .tooltip .tt-lbl { color: var(--text-secondary); }
+
+  /* ---------- forms ---------- */
+  .forms { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .forms { grid-template-columns: 1fr; } }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-actions { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+  .hint { font-size: 11.5px; color: var(--text-muted); }
+
+  /* ---------- table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-muted); font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--grid);
+  }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); color: var(--text-secondary); }
+  td.num { font-variant-numeric: tabular-nums; }
+  td .type-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+  td .strong { color: var(--text-primary); font-weight: 600; }
+  tr:hover td { background: var(--ghost); }
+  .row-del {
+    appearance: none; border: none; background: none; color: var(--text-muted);
+    cursor: pointer; font-size: 15px; padding: 2px 6px; border-radius: 6px;
+  }
+  .row-del:hover { color: var(--bad); background: var(--ghost); }
+
+  footer { color: var(--text-muted); font-size: 11.5px; margin-top: 20px; text-align: center; }
+  .msg {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--page); font-size: 13px; font-weight: 550;
+    padding: 9px 16px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s;
+    z-index: 20; max-width: 90vw;
+  }
+  .msg.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">💉</div>
+    <div>
+      <h1>ShotTrack</h1>
+      <div class="sub">Mounjaro dose &amp; weight tracker</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn subtle" id="unitToggle" title="Switch weight unit">kg</button>
+      <button class="btn subtle icon" id="themeToggle" title="Toggle dark mode">◐</button>
+      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none">
+      <button class="btn" id="importBtn">Import</button>
+      <button class="btn" id="exportBtn">Export CSV</button>
+    </div>
+  </header>
+
+  <div class="filter-row" role="group" aria-label="Time range">
+    <span class="label">Range</span>
+    <button class="seg" data-range="30">30 days</button>
+    <button class="seg" data-range="90">90 days</button>
+    <button class="seg" data-range="180">6 months</button>
+    <button class="seg" data-range="all" aria-pressed="true">All time</button>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Medication in your system</h2>
+        <p class="card-sub">Estimated active tirzepatide, based on a ~5-day half-life</p>
+      </div>
+      <div class="spacer"></div>
+      <div role="group" aria-label="Medication chart range" style="display:flex;gap:4px">
+        <button class="seg medseg" data-medrange="7">Week</button>
+        <button class="seg medseg" data-medrange="30">Month</button>
+        <button class="seg medseg" data-medrange="90">3 months</button>
+        <button class="seg medseg" data-medrange="all" aria-pressed="true">All</button>
+      </div>
+      <div class="legend" id="medLegend" style="width:100%"></div>
+    </div>
+    <div class="chart-box" id="medChartBox">
+      <div id="medChart"></div>
+      <div class="tooltip" id="medTip"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Weight</h2>
+        <p class="card-sub">Line colored by the dose you were on</p>
+      </div>
+      <div class="spacer"></div>
+      <div class="legend" id="wtLegend"></div>
+    </div>
+    <div class="chart-box" id="wtChartBox">
+      <div id="wtChart"></div>
+      <div class="tooltip" id="wtTip"></div>
+    </div>
+  </div>
+
+  <div class="forms">
+    <div class="card" style="margin-bottom:0">
+      <h2>Log a dose</h2>
+      <form id="doseForm">
+        <div class="form-grid">
+          <div>
+            <label for="doseDate">Date</label>
+            <input type="date" id="doseDate" required>
+          </div>
+          <div>
+            <label for="doseTime">Time</label>
+            <input type="time" id="doseTime" value="09:00">
+          </div>
+          <div>
+            <label for="doseMg">Dose (mg)</label>
+            <select id="doseMg">
+              <option>2.5</option><option>5</option><option>7.5</option>
+              <option>10</option><option>12.5</option><option>15</option>
+            </select>
+          </div>
+          <div>
+            <label for="doseSite">Injection site (optional)</label>
+            <select id="doseSite">
+              <option value="">—</option>
+              <option>Stomach - Upper Left</option><option>Stomach - Upper Mid</option><option>Stomach - Upper Right</option>
+              <option>Stomach - Lower Left</option><option>Stomach - Lower Mid</option><option>Stomach - Lower Right</option>
+              <option>Thigh - Left</option><option>Thigh - Right</option>
+              <option>Arm - Left</option><option>Arm - Right</option>
+            </select>
+          </div>
+          <div>
+            <label for="dosePain">Pain level 0–10 (optional)</label>
+            <input type="number" id="dosePain" min="0" max="10" step="0.5" placeholder="0">
+          </div>
+          <div>
+            <label for="doseNotes">Notes (optional)</label>
+            <input type="text" id="doseNotes" placeholder="e.g. mild nausea day after">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary" type="submit">Add dose</button>
+          <span class="hint">Back-date freely — pick any past date.</span>
+        </div>
+      </form>
+    </div>
+
+    <div class="card" style="margin-bottom:0">
+      <h2>Log weight</h2>
+      <form id="wtForm">
+        <div class="form-grid">
+          <div>
+            <label for="wtDate">Date</label>
+            <input type="date" id="wtDate" required>
+          </div>
+          <div>
+            <label for="wtKg">Weight (<span id="wtUnitLbl">kg</span>)</label>
+            <input type="number" id="wtKg" step="0.1" min="20" max="700" required placeholder="82.4">
+          </div>
+          <div>
+            <label for="wtFat">Body fat % (optional)</label>
+            <input type="number" id="wtFat" step="0.1" min="1" max="80" placeholder="—">
+          </div>
+          <div>
+            <label for="wtMuscle">Muscle % (optional)</label>
+            <input type="number" id="wtMuscle" step="0.1" min="1" max="80" placeholder="—">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary" type="submit">Add weight</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="card-head">
+      <div>
+        <h2>History</h2>
+        <p class="card-sub" id="histCount"></p>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn subtle" id="sampleBtn">Load sample data</button>
+      <button class="btn subtle danger-text" id="clearBtn">Clear all</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Entry</th><th>Value</th><th>Body fat</th><th>Muscle</th><th>Notes</th><th></th></tr>
+        </thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    Estimates are based on a simple pharmacokinetic model (~5-day half-life) and are for personal tracking only — not medical advice.<br>
+    Data lives in this page only. <strong>Export CSV</strong> saves your data in the exact Shotsy CSV format; <strong>Import</strong> accepts Shotsy exports (CSV/Excel) directly, so you can move between the two apps freely.
+  </footer>
+</div>
+
+<div class="msg" id="msg"></div>
+
+<script>
+/* ======================= state ======================= */
+const state = {
+  doses: [],    // {id, date:'YYYY-MM-DD', time:'HH:MM', mg, site, pain, notes}
+  weights: [],  // {id, date:'YYYY-MM-DD', kg, fat, muscle}
+  days: {},     // date → {fn, hb, na, sa, notes}  (Shotsy day columns: food noise, heartburn, nausea, suppressed appetite, day notes — preserved for round-trip)
+  range: 'all',    // 30 | 90 | 180 | all — scopes weight chart, stats & table
+  medRange: 'all', // 7 | 30 | 90 | all — scopes the medication chart only
+  unit: 'kg',      // kg | lb
+};
+const HALF_LIFE_DAYS = 5;
+const KE = Math.LN2 / HALF_LIFE_DAYS;   // elimination rate /day
+const KA = 2.0;                          // absorption rate /day (peak ≈ 1.4 d post-injection)
+const DAY = 86400000;
+let uid = 1;
+const newId = () => 'e' + (uid++);
+
+/* dose → color: high-contrast categorical palette (validated adjacent-pair CVD ΔE ≥ 8 in both modes).
+   Mapping is FIXED per dose level so a dose always keeps its color: 2.5→blue, 5→green, 7.5→magenta,
+   10→yellow, 12.5→aqua, 15→orange. Both charts share this map. */
+const CAT_LIGHT = ['#2a78d6','#008300','#e87ba4','#eda100','#1baf7a','#eb6834','#4a3aa7','#e34948'];
+const CAT_DARK  = ['#3987e5','#008300','#d55181','#c98500','#199e70','#d95926','#9085e9','#e66767'];
+const STD_DOSES = [2.5, 5, 7.5, 10, 12.5, 15];
+function doseColorMap() {
+  const pal = document.documentElement.dataset.theme === 'dark' ? CAT_DARK : CAT_LIGHT;
+  const map = new Map();
+  STD_DOSES.forEach((mg, i) => map.set(mg, pal[i]));
+  // custom doses take the remaining slots, then fall back to the nearest standard level's color
+  const extras = [...new Set(state.doses.map(d => d.mg))].filter(m => !map.has(m)).sort((a,b)=>a-b);
+  let next = STD_DOSES.length;
+  for (const mg of extras) {
+    if (next < pal.length) map.set(mg, pal[next++]);
+    else map.set(mg, map.get(STD_DOSES.reduce((p,c) => Math.abs(c-mg) < Math.abs(p-mg) ? c : p)));
+  }
+  return map;
+}
+
+/* ======================= helpers ======================= */
+const $ = s => document.querySelector(s);
+const fmtD = ts => new Date(ts).toLocaleDateString('en-GB', {day:'numeric', month:'short'});
+const fmtDY = ts => new Date(ts).toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'});
+const todayISO = () => { const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+const doseTs = d => new Date(d.date + 'T' + (d.time || '09:00')).getTime();
+const wtTs   = w => new Date(w.date + 'T12:00').getTime();
+const kg2lb = kg => kg * 2.2046226218;
+const dispW = kg => state.unit === 'kg' ? kg : kg2lb(kg);
+const roundN = (v,n=1) => Math.round(v * 10**n) / 10**n;
+function showMsg(t) {
+  const m = $('#msg'); m.textContent = t; m.classList.add('show');
+  clearTimeout(showMsg._t); showMsg._t = setTimeout(()=>m.classList.remove('show'), 2600);
+}
+function rangeStart(now) {
+  if (state.range === 'all') return -Infinity;
+  return now - Number(state.range) * DAY;
+}
+function esc(el, text) { el.textContent = text; return el; }
+function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
+
+/* ======================= pharmacokinetics ======================= */
+/* amount in body from one dose D at t days post-injection (one-compartment, first-order absorption) */
+function amountFromDose(D, tDays) {
+  if (tDays <= 0) return 0;
+  return D * KA / (KA - KE) * (Math.exp(-KE * tDays) - Math.exp(-KA * tDays));
+}
+function medLevelAt(ts) {
+  let sum = 0;
+  for (const d of state.doses) sum += amountFromDose(d.mg, (ts - doseTs(d)) / DAY);
+  return sum;
+}
+
+/* ======================= stat tiles ======================= */
+function renderTiles() {
+  const box = $('#tiles'); box.innerHTML = '';
+  const now = Date.now();
+  const ws = [...state.weights].sort((a,b)=>wtTs(a)-wtTs(b));
+  const ds = [...state.doses].sort((a,b)=>doseTs(a)-doseTs(b));
+  const unit = state.unit;
+
+  function tile(label, valueHtmlBuilder, deltaBuilder) {
+    const t = el('div','tile');
+    const l = el('div','t-label'); l.textContent = label;
+    const v = el('div','t-value'); valueHtmlBuilder(v);
+    t.append(l, v);
+    if (deltaBuilder) { const d = el('div','t-delta'); deltaBuilder(d); t.append(d); }
+    box.append(t);
+  }
+
+  // current weight + total change
+  tile('Current weight', v => {
+    if (!ws.length) { v.textContent = '—'; return; }
+    v.textContent = roundN(dispW(ws[ws.length-1].kg));
+    const u = el('span','unit'); u.textContent = ' ' + unit; v.append(u);
+  }, d => {
+    if (ws.length < 2) { d.textContent = ws.length ? 'first entry' : 'no entries yet'; return; }
+    const ch = dispW(ws[ws.length-1].kg) - dispW(ws[0].kg);
+    const s = el('span', ch <= 0 ? 'd-good' : 'd-bad');
+    s.textContent = (ch > 0 ? '+' : '') + roundN(ch) + ' ' + unit;
+    d.append(s, document.createTextNode(' since ' + fmtD(wtTs(ws[0]))));
+  });
+
+  // est. medication now
+  tile('Est. medication now', v => {
+    if (!ds.length) { v.textContent = '—'; return; }
+    v.textContent = roundN(medLevelAt(now), 2);
+    const u = el('span','unit'); u.textContent = ' mg'; v.append(u);
+  }, d => d.textContent = ds.length ? '~' + HALF_LIFE_DAYS + '-day half-life model' : 'log a dose to see this');
+
+  // last dose
+  tile('Last dose', v => {
+    if (!ds.length) { v.textContent = '—'; return; }
+    const last = ds[ds.length-1];
+    v.textContent = last.mg;
+    const u = el('span','unit'); u.textContent = ' mg'; v.append(u);
+  }, d => {
+    if (!ds.length) { d.textContent = 'no doses yet'; return; }
+    const last = ds[ds.length-1];
+    const days = Math.floor((now - doseTs(last)) / DAY);
+    d.textContent = fmtD(doseTs(last)) + ' · ' + (days === 0 ? 'today' : days + (days === 1 ? ' day ago' : ' days ago'));
+  });
+
+  // next dose (weekly)
+  tile('Next dose due', v => {
+    if (!ds.length) { v.textContent = '—'; return; }
+    const nextTs = doseTs(ds[ds.length-1]) + 7 * DAY;
+    const dLeft = Math.ceil((nextTs - now) / DAY);
+    v.textContent = dLeft <= 0 ? 'Now' : dLeft;
+    if (dLeft > 0) { const u = el('span','unit'); u.textContent = dLeft === 1 ? ' day' : ' days'; v.append(u); }
+  }, d => {
+    if (!ds.length) { d.textContent = 'weekly schedule'; return; }
+    const nextTs = doseTs(ds[ds.length-1]) + 7 * DAY;
+    d.textContent = nextTs <= now ? 'was due ' + fmtD(nextTs) : fmtDY(nextTs);
+  });
+}
+
+/* ======================= chart scaffolding ======================= */
+const CHART_H = 240, PAD = {t: 14, r: 14, b: 30, l: 46};
+function chartWidth(boxEl) { return Math.max(320, boxEl.clientWidth || 640); }
+function niceTicks(min, max, n = 4) {
+  if (min === max) { min -= 1; max += 1; }
+  const span = max - min, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1,2,2.5,5,10].map(m=>m*mag).find(s => span / s <= n + 0.5) || 10*mag;
+  const t0 = Math.ceil(min / step) * step, out = [];
+  for (let t = t0; t <= max + 1e-9; t += step) out.push(roundN(t, 6));
+  return out;
+}
+function svgEl(name, attrs) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function axisLayer(svg, W, xs, ys, xTicks, yTicks, yFmt) {
+  for (const yt of yTicks) {
+    const y = ys(yt);
+    svg.append(svgEl('line', {x1: PAD.l, x2: W - PAD.r, y1: y, y2: y, stroke: 'var(--grid)', 'stroke-width': 1}));
+    const lbl = svgEl('text', {x: PAD.l - 8, y: y + 3.5, 'text-anchor': 'end', fill: 'var(--text-muted)', 'font-size': 11, style: 'font-variant-numeric: tabular-nums'});
+    lbl.textContent = yFmt ? yFmt(yt) : yt;
+    svg.append(lbl);
+  }
+  svg.append(svgEl('line', {x1: PAD.l, x2: W - PAD.r, y1: CHART_H - PAD.b, y2: CHART_H - PAD.b, stroke: 'var(--axis)', 'stroke-width': 1}));
+  for (const xt of xTicks) {
+    const lbl = svgEl('text', {x: xs(xt), y: CHART_H - PAD.b + 17, 'text-anchor': 'middle', fill: 'var(--text-muted)', 'font-size': 11});
+    lbl.textContent = fmtD(xt);
+    svg.append(lbl);
+  }
+}
+function timeTicks(t0, t1, W) {
+  const n = Math.max(3, Math.min(7, Math.floor((W - PAD.l - PAD.r) / 90)));
+  const out = []; for (let i = 0; i <= n; i++) out.push(t0 + (t1 - t0) * i / n);
+  return out;
+}
+function legendKey(color, text, dashed) {
+  const k = el('span','key');
+  const sw = el('span', dashed ? 'swatch-dash' : 'swatch-line');
+  sw.style.borderTopColor = color;
+  const t = el('span'); t.textContent = text;
+  k.append(sw, t); return k;
+}
+
+/* ======================= medication chart ======================= */
+let medHover = null;
+function renderMedChart() {
+  const box = $('#medChart'), legend = $('#medLegend');
+  box.innerHTML = ''; legend.innerHTML = '';
+  const ds = [...state.doses].sort((a,b)=>doseTs(a)-doseTs(b));
+  if (!ds.length) {
+    box.innerHTML = '<div class="empty-note">Log your first dose to see the curve.</div>';
+    medHover = null; return;
+  }
+  const now = Date.now();
+  const mr = state.medRange;
+  const t0 = mr === 'all' ? doseTs(ds[0]) - 0.5 * DAY : now - Number(mr) * DAY;
+  const t1 = now + (mr === '7' ? 7 : 14) * DAY;    // project ahead (1 week in week view, else 2)
+  const W = chartWidth($('#medChartBox'));
+  const xs = t => PAD.l + (t - t0) / (t1 - t0) * (W - PAD.l - PAD.r);
+
+  // sample grid + exact points at each dose time and at "now" (clean color switches)
+  const stepMs = Math.max((t1 - t0) / 420, 3600e3);
+  const times = [];
+  for (let t = t0; t <= t1; t += stepMs) times.push(t);
+  times.push(t1, now);
+  for (const d of ds) { const ts = doseTs(d); if (ts > t0 && ts < t1) times.push(ts - 1, ts); }
+  times.sort((a,b)=>a-b);
+  const pts = times.filter(t => t >= t0 && t <= t1).map(t => [t, medLevelAt(t)]);
+  const yMax = Math.max(...pts.map(p => p[1]), 1) * 1.12;
+  const ys = v => PAD.t + (1 - v / yMax) * (CHART_H - PAD.t - PAD.b);
+
+  const svg = svgEl('svg', {viewBox: `0 0 ${W} ${CHART_H}`, width: W, height: CHART_H, role: 'img',
+    'aria-label': 'Estimated medication in body over time, colored by dose'});
+  axisLayer(svg, W, xs, ys, timeTicks(t0, t1, W), niceTicks(0, yMax), v => v + '');
+
+  const cmap = doseColorMap();
+  const fallback = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
+  const activeAt = t => { let b = null; for (const d of ds) { const dt = doseTs(d); if (dt <= t && (!b || dt > doseTs(b))) b = d; } return b; };
+
+  // group samples into segments by (active dose, past/future)
+  const segs = [];
+  let cur = null;
+  for (const p of pts) {
+    const d = activeAt(p[0]);
+    const key = (d ? d.id : 'pre') + '|' + (p[0] > now ? 'f' : 'p');
+    if (!cur || cur.key !== key) {
+      const seg = {key, dose: d, future: p[0] > now, pts: []};
+      if (cur && cur.pts.length) seg.pts.push(cur.pts[cur.pts.length - 1]);   // share boundary point
+      segs.push(seg); cur = seg;
+    }
+    cur.pts.push(p);
+  }
+  const path = arr => arr.map((p,i) => (i ? 'L' : 'M') + xs(p[0]).toFixed(1) + ' ' + ys(p[1]).toFixed(1)).join(' ');
+  const usedMg = new Set();
+  for (const s of segs) {
+    if (s.pts.length < 2) continue;
+    const color = s.dose ? cmap.get(s.dose.mg) : fallback;
+    if (s.dose) usedMg.add(s.dose.mg);
+    if (!s.future) {
+      const a = path(s.pts) + ` L ${xs(s.pts[s.pts.length-1][0]).toFixed(1)} ${ys(0)} L ${xs(s.pts[0][0]).toFixed(1)} ${ys(0)} Z`;
+      svg.append(svgEl('path', {d: a, fill: color, opacity: 0.09}));
+      svg.append(svgEl('path', {d: path(s.pts), fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round'}));
+    } else {
+      svg.append(svgEl('path', {d: path(s.pts), fill: 'none', stroke: color, 'stroke-width': 2, 'stroke-dasharray': '5 5', 'stroke-linecap': 'round', opacity: 0.8}));
+    }
+  }
+
+  // dose markers
+  for (const d of ds) {
+    const ts = doseTs(d); if (ts < t0 || ts > t1) continue;
+    svg.append(svgEl('circle', {cx: xs(ts), cy: ys(medLevelAt(ts + 1)), r: 4.5, fill: cmap.get(d.mg), stroke: 'var(--surface-1)', 'stroke-width': 2}));
+  }
+
+  // "now" marker + current value label
+  svg.append(svgEl('line', {x1: xs(now), x2: xs(now), y1: PAD.t, y2: CHART_H - PAD.b, stroke: 'var(--axis)', 'stroke-width': 1}));
+  const nowVal = medLevelAt(now);
+  const nl = svgEl('text', {x: xs(now) - 7, 'text-anchor': 'end', y: Math.max(ys(nowVal) - 10, PAD.t + 10), fill: 'var(--text-secondary)', 'font-size': 11.5, 'font-weight': 600});
+  nl.textContent = 'now · ' + roundN(nowVal, 1) + ' mg';
+  svg.append(nl);
+
+  // hover crosshair
+  const cross = svgEl('line', {y1: PAD.t, y2: CHART_H - PAD.b, stroke: 'var(--axis)', 'stroke-width': 1, visibility: 'hidden'});
+  const dot = svgEl('circle', {r: 5, fill: fallback, stroke: 'var(--surface-1)', 'stroke-width': 2, visibility: 'hidden'});
+  svg.append(cross, dot);
+  box.append(svg);
+
+  // legend: dose colors shared with the weight chart, plus the projection key
+  [...usedMg].sort((a,b)=>a-b).forEach(mg => legend.append(legendKey(cmap.get(mg), mg + ' mg', false)));
+  legend.append(legendKey(fallback, 'projection', true));
+
+  medHover = { t0, t1, W, xs, ys, cross, dot, svg, cmap, activeAt };
+}
+function medPointerMove(ev) {
+  if (!medHover) return;
+  const box = $('#medChartBox'), tip = $('#medTip');
+  const r = box.getBoundingClientRect();
+  const px = (ev.clientX - r.left) * (medHover.W / r.width);
+  if (px < PAD.l || px > medHover.W - PAD.r) { medPointerLeave(); return; }
+  const t = medHover.t0 + (px - PAD.l) / (medHover.W - PAD.l - PAD.r) * (medHover.t1 - medHover.t0);
+  const v = medLevelAt(t);
+  const active = medHover.activeAt(t);
+  const color = active ? medHover.cmap.get(active.mg) : getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
+  medHover.cross.setAttribute('x1', medHover.xs(t)); medHover.cross.setAttribute('x2', medHover.xs(t));
+  medHover.cross.setAttribute('visibility', 'visible');
+  medHover.dot.setAttribute('cx', medHover.xs(t)); medHover.dot.setAttribute('cy', medHover.ys(v));
+  medHover.dot.setAttribute('fill', color);
+  medHover.dot.setAttribute('visibility', 'visible');
+  tip.innerHTML = '';
+  const dEl = el('div','tt-date'); dEl.textContent = fmtDY(t) + (t > Date.now() ? ' · projected' : '');
+  const row = el('div','tt-row');
+  const k = el('span','tt-key'); k.style.borderTopColor = color;
+  const val = el('span','tt-val'); val.textContent = roundN(v, 2) + ' mg';
+  const lbl = el('span','tt-lbl'); lbl.textContent = active ? 'in system · last shot ' + active.mg + ' mg' : 'in system';
+  row.append(k, val, lbl); tip.append(dEl, row);
+  tip.style.display = 'block';
+  const tipX = Math.min(ev.clientX - r.left + 14, r.width - tip.offsetWidth - 6);
+  tip.style.left = Math.max(6, tipX) + 'px';
+  tip.style.top = Math.max(0, ev.clientY - r.top - tip.offsetHeight - 12) + 'px';
+}
+function medPointerLeave() {
+  if (medHover) { medHover.cross.setAttribute('visibility','hidden'); medHover.dot.setAttribute('visibility','hidden'); }
+  $('#medTip').style.display = 'none';
+}
+
+/* ======================= weight chart ======================= */
+let wtHover = null;
+function activeDoseAt(ts) {
+  let best = null;
+  for (const d of state.doses) { const dt = doseTs(d); if (dt <= ts && (!best || dt > doseTs(best))) best = d; }
+  return best;
+}
+function renderWtChart() {
+  const box = $('#wtChart'), legend = $('#wtLegend');
+  box.innerHTML = ''; legend.innerHTML = '';
+  const now = Date.now();
+  const all = [...state.weights].sort((a,b)=>wtTs(a)-wtTs(b));
+  if (!all.length) {
+    box.innerHTML = '<div class="empty-note">Log a weight to start the chart.</div>';
+    wtHover = null; return;
+  }
+  const from = rangeStart(now);
+  let ws = all.filter(w => wtTs(w) >= from);
+  if (ws.length < 2) ws = all.slice(-Math.max(ws.length, 2));   // keep at least a segment when possible
+
+  const W = chartWidth($('#wtChartBox'));
+  const t0 = wtTs(ws[0]) - 0.5 * DAY, t1 = Math.max(wtTs(ws[ws.length-1]), now) + 0.5 * DAY;
+  const xs = t => PAD.l + (t - t0) / (t1 - t0) * (W - PAD.l - PAD.r);
+  const vals = ws.map(w => dispW(w.kg));
+  let vMin = Math.min(...vals), vMax = Math.max(...vals);
+  const padV = Math.max((vMax - vMin) * 0.15, state.unit === 'kg' ? 0.8 : 1.8);
+  vMin -= padV; vMax += padV;
+  const ys = v => PAD.t + (1 - (v - vMin) / (vMax - vMin)) * (CHART_H - PAD.t - PAD.b);
+
+  const svg = svgEl('svg', {viewBox: `0 0 ${W} ${CHART_H}`, width: W, height: CHART_H, role: 'img', 'aria-label': 'Weight over time, colored by dose'});
+  axisLayer(svg, W, xs, ys, timeTicks(t0, t1, W), niceTicks(vMin, vMax), v => roundN(v,1) + '');
+
+  const cmap = doseColorMap();
+  const fallback = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
+  const segColor = w => { const d = activeDoseAt(wtTs(w)); return d ? cmap.get(d.mg) : fallback; };
+
+  // colored segments
+  for (let i = 0; i < ws.length - 1; i++) {
+    svg.append(svgEl('line', {
+      x1: xs(wtTs(ws[i])), y1: ys(dispW(ws[i].kg)),
+      x2: xs(wtTs(ws[i+1])), y2: ys(dispW(ws[i+1].kg)),
+      stroke: segColor(ws[i]), 'stroke-width': 2, 'stroke-linecap': 'round'
+    }));
+  }
+  // points with surface ring
+  ws.forEach(w => {
+    svg.append(svgEl('circle', {cx: xs(wtTs(w)), cy: ys(dispW(w.kg)), r: 4, fill: segColor(w), stroke: 'var(--surface-1)', 'stroke-width': 2}));
+  });
+  // endpoint direct label
+  const lastW = ws[ws.length-1];
+  const endX = xs(wtTs(lastW)), endFits = endX + 60 < W - PAD.r;
+  const endLbl = svgEl('text', {
+    x: endFits ? endX + 9 : endX,
+    'text-anchor': endFits ? 'start' : 'middle',
+    y: Math.max(ys(dispW(lastW.kg)) - 10, PAD.t + 9),
+    fill: 'var(--text-secondary)', 'font-size': 11.5, 'font-weight': 600});
+  endLbl.textContent = roundN(dispW(lastW.kg)) + ' ' + state.unit;
+  svg.append(endLbl);
+
+  // hover
+  const cross = svgEl('line', {y1: PAD.t, y2: CHART_H - PAD.b, stroke: 'var(--axis)', 'stroke-width': 1, visibility: 'hidden'});
+  const dot = svgEl('circle', {r: 6, fill: 'none', stroke: 'var(--text-secondary)', 'stroke-width': 1.5, visibility: 'hidden'});
+  svg.append(cross, dot);
+  box.append(svg);
+
+  // legend: dose levels present in view (plus 'no dose yet' if applicable)
+  const seen = new Set();
+  ws.forEach(w => { const d = activeDoseAt(wtTs(w)); seen.add(d ? d.mg : null); });
+  [...seen].filter(m => m !== null).sort((a,b)=>a-b).forEach(mg => legend.append(legendKey(cmap.get(mg), mg + ' mg', false)));
+  if (seen.has(null)) legend.append(legendKey(fallback, 'before first dose', false));
+
+  wtHover = { ws, t0, t1, W, xs, ys, cross, dot, cmap, fallback };
+}
+function wtPointerMove(ev) {
+  if (!wtHover) return;
+  const box = $('#wtChartBox'), tip = $('#wtTip');
+  const r = box.getBoundingClientRect();
+  const px = (ev.clientX - r.left) * (wtHover.W / r.width);
+  if (px < PAD.l || px > wtHover.W - PAD.r) { wtPointerLeave(); return; }
+  const t = wtHover.t0 + (px - PAD.l) / (wtHover.W - PAD.l - PAD.r) * (wtHover.t1 - wtHover.t0);
+  // nearest weight point
+  let best = null, bd = Infinity;
+  for (const w of wtHover.ws) { const d = Math.abs(wtTs(w) - t); if (d < bd) { bd = d; best = w; } }
+  if (!best) return;
+  const bx = wtHover.xs(wtTs(best)), by = wtHover.ys(dispW(best.kg));
+  wtHover.cross.setAttribute('x1', bx); wtHover.cross.setAttribute('x2', bx);
+  wtHover.cross.setAttribute('visibility', 'visible');
+  wtHover.dot.setAttribute('cx', bx); wtHover.dot.setAttribute('cy', by);
+  wtHover.dot.setAttribute('visibility', 'visible');
+
+  const d = activeDoseAt(wtTs(best));
+  tip.innerHTML = '';
+  const dEl = el('div','tt-date'); dEl.textContent = fmtDY(wtTs(best));
+  tip.append(dEl);
+  const row1 = el('div','tt-row');
+  const k1 = el('span','tt-key'); k1.style.borderTopColor = d ? wtHover.cmap.get(d.mg) : wtHover.fallback;
+  const v1 = el('span','tt-val'); v1.textContent = roundN(dispW(best.kg)) + ' ' + state.unit;
+  const l1 = el('span','tt-lbl'); l1.textContent = d ? 'on ' + d.mg + ' mg' : 'before first dose';
+  row1.append(k1, v1, l1); tip.append(row1);
+  if (best.fat != null || best.muscle != null) {
+    const row2 = el('div','tt-row');
+    const l2 = el('span','tt-lbl');
+    l2.textContent = [best.fat != null ? 'fat ' + best.fat + '%' : null, best.muscle != null ? 'muscle ' + best.muscle + '%' : null].filter(Boolean).join(' · ');
+    row2.append(l2); tip.append(row2);
+  }
+  const idx = wtHover.ws.indexOf(best);
+  if (idx > 0) {
+    const ch = dispW(best.kg) - dispW(wtHover.ws[idx-1].kg);
+    const row3 = el('div','tt-row');
+    const v3 = el('span', ''); v3.style.fontWeight = '600';
+    v3.style.color = ch <= 0 ? 'var(--good)' : 'var(--bad)';
+    v3.textContent = (ch > 0 ? '+' : '') + roundN(ch) + ' ' + state.unit;
+    const l3 = el('span','tt-lbl'); l3.textContent = 'vs previous';
+    row3.append(v3, l3); tip.append(row3);
+  }
+  tip.style.display = 'block';
+  const tipX = Math.min(ev.clientX - r.left + 14, r.width - tip.offsetWidth - 6);
+  tip.style.left = Math.max(6, tipX) + 'px';
+  tip.style.top = Math.max(0, ev.clientY - r.top - tip.offsetHeight - 12) + 'px';
+}
+function wtPointerLeave() {
+  if (wtHover) { wtHover.cross.setAttribute('visibility','hidden'); wtHover.dot.setAttribute('visibility','hidden'); }
+  $('#wtTip').style.display = 'none';
+}
+
+/* ======================= history table ======================= */
+function renderTable() {
+  const body = $('#histBody'); body.innerHTML = '';
+  const now = Date.now(), from = rangeStart(now);
+  const cmap = doseColorMap();
+  const rows = [
+    ...state.doses.map(d => ({ts: doseTs(d), kind: 'dose', e: d})),
+    ...state.weights.map(w => ({ts: wtTs(w), kind: 'weight', e: w})),
+  ].filter(r => r.ts >= from).sort((a,b) => b.ts - a.ts);
+
+  $('#histCount').textContent = rows.length
+    ? rows.length + ' entr' + (rows.length === 1 ? 'y' : 'ies') + (state.range === 'all' ? '' : ' in range')
+    : '';
+
+  if (!rows.length) {
+    const tr = el('tr'); const td = el('td'); td.colSpan = 7; td.className = '';
+    td.innerHTML = '<div class="empty-note">No entries' + (state.range === 'all' ? ' yet. Add a dose or weight above, or load sample data.' : ' in this range.') + '</div>';
+    tr.append(td); body.append(tr); return;
+  }
+  for (const r of rows) {
+    const tr = el('tr');
+    const tdDate = el('td','num'); tdDate.textContent = fmtDY(r.ts) + (r.kind === 'dose' && r.e.time ? ' ' + r.e.time : '');
+    const tdKind = el('td');
+    const dotEl = el('span','type-dot');
+    dotEl.style.background = r.kind === 'dose' ? (cmap.get(r.e.mg) || 'var(--accent)') : 'var(--text-muted)';
+    tdKind.append(dotEl, document.createTextNode(r.kind === 'dose' ? 'Dose' : 'Weight'));
+    const tdVal = el('td','num');
+    const strong = el('span','strong');
+    strong.textContent = r.kind === 'dose' ? r.e.mg + ' mg' : roundN(dispW(r.e.kg)) + ' ' + state.unit;
+    tdVal.append(strong);
+    const tdFat = el('td','num'); tdFat.textContent = r.kind === 'weight' && r.e.fat != null ? r.e.fat + '%' : '—';
+    const tdMus = el('td','num'); tdMus.textContent = r.kind === 'weight' && r.e.muscle != null ? r.e.muscle + '%' : '—';
+    const tdNotes = el('td');
+    tdNotes.textContent = r.kind === 'dose' ? [r.e.site, r.e.notes].filter(Boolean).join(' · ') : '';
+    const tdDel = el('td');
+    const del = el('button','row-del'); del.textContent = '✕'; del.title = 'Delete entry';
+    del.addEventListener('click', () => {
+      if (r.kind === 'dose') state.doses = state.doses.filter(x => x.id !== r.e.id);
+      else state.weights = state.weights.filter(x => x.id !== r.e.id);
+      renderAll(); showMsg('Entry deleted');
+    });
+    tdDel.append(del);
+    tr.append(tdDate, tdKind, tdVal, tdFat, tdMus, tdNotes, tdDel);
+    body.append(tr);
+  }
+}
+
+/* ======================= CSV / Excel ======================= */
+/* Export in the exact Shotsy CSV structure, so files are interchangeable both ways. */
+const SHOTSY_HEADER = 'Date,Avg Tirzepatid Level (mg),Shot,Time,Site,Pain Level,Taken,Shot Notes,Ağırlık (kg),Yiyecek Gürültüsü,Mide Yanması,Bulantı,Baskılanmış İştah,Day Notes';
+const trimNum = v => v == null || v === '' ? '' : String(Number(Number(v).toFixed(2)));
+function dayAvgLevel(dateISO) {
+  // average of hourly estimates across the day (mirrors Shotsy's daily "avg level")
+  let sum = 0;
+  for (let h = 0; h < 24; h++) sum += medLevelAt(new Date(dateISO + 'T00:30').getTime() + h * 3600e3);
+  return sum / 24;
+}
+function exportCSV() {
+  const qq = v => '"' + String(v ?? '').replace(/"/g,'""') + '"';
+  const allDates = [...state.doses.map(d => d.date), ...state.weights.map(w => w.date), ...Object.keys(state.days)].sort();
+  if (!allDates.length) { showMsg('Nothing to export yet'); return; }
+  const doseByDate = {}, wtByDate = {};
+  state.doses.forEach(d => { if (!doseByDate[d.date]) doseByDate[d.date] = d; });
+  state.weights.forEach(w => { wtByDate[w.date] = w; });
+  const lines = [SHOTSY_HEADER];
+  const end = new Date(todayISO() + 'T12:00');
+  for (let dt = new Date(allDates[0] + 'T12:00'); dt <= end; dt.setDate(dt.getDate() + 1)) {
+    const date = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+    const d = doseByDate[date], w = wtByDate[date], day = state.days[date] || {};
+    lines.push([
+      date,
+      trimNum(dayAvgLevel(date)),
+      qq(d ? 'Mounjaro ' + trimNum(d.mg) + 'mg' : ''),
+      qq(d ? d.time || '' : ''),
+      qq(d ? d.site || 'Unknown' : ''),
+      qq(d ? Number(d.pain || 0).toFixed(1) : ''),
+      qq(d ? 'Yes' : ''),
+      qq(d ? d.notes || '' : ''),
+      w ? trimNum(w.kg) : '',
+      day.fn ?? '', day.hb ?? '', day.na ?? '', day.sa ?? '',
+      qq(day.notes || ''),
+    ].join(','));
+  }
+  const blob = new Blob([lines.join('\n') + '\n'], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  const now = new Date(), p = n => String(n).padStart(2,'0');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'Shotsy_' + now.getFullYear() + p(now.getMonth()+1) + p(now.getDate()) + '_' + p(now.getHours()) + p(now.getMinutes()) + p(now.getSeconds()) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showMsg('CSV exported in Shotsy format — keep it as your backup');
+}
+
+function parseCSVText(text) {
+  // simple CSV parser handling quotes; auto-detect , or ;
+  const firstLine = text.slice(0, text.indexOf('\n') === -1 ? text.length : text.indexOf('\n'));
+  const delim = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
+  const rows = []; let row = [], cur = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i+1] === '"') { cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else if (c === '"') inQ = true;
+    else if (c === delim) { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i+1] === '\n') i++;
+      row.push(cur); cur = '';
+      if (row.some(x => x.trim() !== '')) rows.push(row);
+      row = [];
+    } else cur += c;
+  }
+  row.push(cur);
+  if (row.some(x => x.trim() !== '')) rows.push(row);
+  return rows;
+}
+
+function normDate(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') {           // Excel serial date
+    const ms = Math.round((v - 25569) * DAY);
+    if (ms > 0) { const d = new Date(ms); return d.toISOString().slice(0,10); }
+    return null;
+  }
+  v = String(v).trim();
+  let m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return m[1] + '-' + m[2].padStart(2,'0') + '-' + m[3].padStart(2,'0');
+  m = v.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);          // DD.MM.YYYY / DD/MM/YYYY
+  if (m) return m[3] + '-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0');
+  const d = new Date(v);
+  return isNaN(d) ? null : d.toISOString().slice(0,10);
+}
+const num = v => {
+  if (v == null || v === '') return null;
+  const n = parseFloat(String(v).replace(',', '.').replace(/[^\d.\-]/g,''));
+  return isNaN(n) ? null : n;
+};
+
+/* --- Shotsy-format import (the app's native format) --- */
+function importShotsy(rows, header) {
+  const f = pred => header.findIndex(pred);
+  const ci = {
+    date:  f(h => h.startsWith('date')),
+    shot:  f(h => h === 'shot'),
+    time:  f(h => h === 'time'),
+    site:  f(h => h === 'site'),
+    pain:  f(h => h.startsWith('pain')),
+    snote: f(h => h === 'shot notes'),
+    wt:    f(h => h.startsWith('ağırlık') || h.startsWith('agirlik') || h.includes('weight')),
+    fn:    f(h => h.includes('yiyecek') || h.includes('food')),
+    hb:    f(h => h.includes('mide') || h.includes('heartburn')),
+    na:    f(h => h.includes('bulant') || h.includes('nausea')),
+    sa:    f(h => h.includes('bask') || h.includes('iştah') || h.includes('istah') || h.includes('appetite')),
+    dnote: f(h => h === 'day notes'),
+  };
+  let added = 0;
+  const doseKeys = new Set(state.doses.map(d => d.date + '|' + d.mg));
+  const wtKeys = new Set(state.weights.map(w => w.date));
+  const get = (r, idx) => idx === -1 || r[idx] == null ? '' : String(r[idx]).trim();
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const date = normDate(get(r, ci.date));
+    if (!date) continue;
+    const shot = get(r, ci.shot);
+    const mgMatch = shot.match(/(\d+(?:[.,]\d+)?)\s*mg/i);
+    if (mgMatch) {
+      const mg = parseFloat(mgMatch[1].replace(',', '.'));
+      if (!doseKeys.has(date + '|' + mg)) {
+        doseKeys.add(date + '|' + mg);
+        const site = get(r, ci.site);
+        state.doses.push({id: newId(), date, time: get(r, ci.time).slice(0,5) || '09:00', mg,
+          site: site === 'Unknown' ? '' : site, pain: num(get(r, ci.pain)) || 0, notes: get(r, ci.snote)});
+        added++;
+      }
+    }
+    const wtV = num(get(r, ci.wt));
+    if (wtV != null && !wtKeys.has(date)) {
+      wtKeys.add(date);
+      state.weights.push({id: newId(), date, kg: roundN(wtV, 2), fat: null, muscle: null});
+      added++;
+    }
+    const day = {fn: get(r, ci.fn), hb: get(r, ci.hb), na: get(r, ci.na), sa: get(r, ci.sa), notes: get(r, ci.dnote)};
+    if (day.fn || day.hb || day.na || day.sa || day.notes) state.days[date] = day;
+  }
+  return added;
+}
+
+function importRows(rows) {
+  if (!rows.length) return 0;
+  const header = rows[0].map(h => String(h).trim().toLowerCase());
+  if (header.includes('shot') && header.some(h => h.startsWith('date')))
+    return importShotsy(rows, header);   // Shotsy / ShotTrack native format
+  const find = (...names) => header.findIndex(h => names.some(n => h === n || h.includes(n)));
+  const ci = {
+    type:   find('type', 'entry', 'kind'),
+    date:   find('date', 'tarih', 'day'),
+    time:   find('time', 'saat'),
+    dose:   find('dose', 'doz', 'shot'),
+    weight: find('weight', 'kg', 'kilo', 'lbs', 'lb'),
+    fat:    find('fat', 'yağ', 'yag'),
+    muscle: find('muscle', 'kas'),
+    site:   find('site', 'bölge', 'bolge', 'location'),
+    notes:  find('note', 'not'),
+  };
+  if (ci.date === -1 || (ci.dose === -1 && ci.weight === -1)) {
+    showMsg('Could not find date + dose/weight columns in that file');
+    return 0;
+  }
+  const weightIsLb = ci.weight !== -1 && /lb/.test(header[ci.weight]);
+  let added = 0;
+  const doseKeys = new Set(state.doses.map(d => d.date + '|' + d.mg));
+  const wtKeys = new Set(state.weights.map(w => w.date + '|' + w.kg));
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const get = idx => idx === -1 ? null : r[idx];
+    const date = normDate(get(ci.date));
+    if (!date) continue;
+    const typeRaw = (get(ci.type) || '').toString().toLowerCase();
+    const doseV = num(get(ci.dose)), wtV = num(get(ci.weight));
+    const isDose = typeRaw.includes('dose') || typeRaw.includes('doz') || typeRaw.includes('shot') || (!typeRaw && doseV != null && wtV == null) || (typeRaw === '' && doseV != null);
+    if (doseV != null && (isDose || wtV == null)) {
+      const key = date + '|' + doseV;
+      if (!doseKeys.has(key)) {
+        doseKeys.add(key);
+        state.doses.push({id: newId(), date, time: (get(ci.time) || '').toString().slice(0,5) || '09:00',
+          mg: doseV, site: (get(ci.site) || '').toString(), notes: (get(ci.notes) || '').toString()});
+        added++;
+      }
+    }
+    if (wtV != null) {
+      const kg = weightIsLb ? wtV / 2.2046226218 : wtV;
+      const key = date + '|' + kg;
+      if (!wtKeys.has(key)) {
+        wtKeys.add(key);
+        state.weights.push({id: newId(), date, kg: roundN(kg, 2), fat: num(get(ci.fat)), muscle: num(get(ci.muscle))});
+        added++;
+      }
+    }
+  }
+  return added;
+}
+
+function handleFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.csv') || name.endsWith('.txt')) {
+    const rd = new FileReader();
+    rd.onload = () => {
+      const n = importRows(parseCSVText(rd.result));
+      renderAll(); if (n) showMsg('Imported ' + n + ' entries');
+    };
+    rd.readAsText(file);
+  } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    loadSheetJS().then(() => {
+      const rd = new FileReader();
+      rd.onload = () => {
+        try {
+          const wb = XLSX.read(new Uint8Array(rd.result), {type: 'array'});
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(sheet, {header: 1, raw: true});
+          const n = importRows(rows);
+          renderAll(); if (n) showMsg('Imported ' + n + ' entries from Excel');
+        } catch (e) { showMsg('Could not read that Excel file'); }
+      };
+      rd.readAsArrayBuffer(file);
+    }).catch(() => showMsg('Excel support needs an internet connection — export as CSV instead'));
+  } else showMsg('Please choose a .csv or .xlsx file');
+}
+let sheetJSPromise = null;
+function loadSheetJS() {
+  if (window.XLSX) return Promise.resolve();
+  if (!sheetJSPromise) sheetJSPromise = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = res; s.onerror = rej;
+    document.head.append(s);
+  });
+  return sheetJSPromise;
+}
+
+/* ======================= sample data ======================= */
+function loadSample() {
+  const now = new Date(); now.setHours(9,0,0,0);
+  const iso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const weeksAgo = n => { const d = new Date(now); d.setDate(d.getDate() - 7*n); return d; };
+  const daysAgo = n => { const d = new Date(now); d.setDate(d.getDate() - n); return d; };
+  state.doses = []; state.weights = []; state.days = {};
+  const plan = [[11,2.5],[10,2.5],[9,2.5],[8,2.5],[7,5],[6,5],[5,5],[4,5],[3,7.5],[2,7.5],[1,7.5],[0,7.5]];
+  plan.forEach(([wk, mg]) => state.doses.push({id: newId(), date: iso(weeksAgo(wk)), time: '09:00', mg, site: '', notes: ''}));
+  let kg = 96.4;
+  for (let d = 80; d >= 0; d -= 4) {
+    kg -= (0.22 + Math.sin(d) * 0.12 + (d < 40 ? 0.12 : 0));
+    state.weights.push({id: newId(), date: iso(daysAgo(d)), kg: roundN(kg,1),
+      fat: d % 12 === 0 ? roundN(33 - (80-d)*0.045,1) : null,
+      muscle: d % 12 === 0 ? roundN(36 + (80-d)*0.02,1) : null});
+  }
+  renderAll(); showMsg('Sample data loaded — Clear all removes it');
+}
+
+/* ======================= events & init ======================= */
+function renderAll() {
+  renderTiles(); renderMedChart(); renderWtChart(); renderTable();
+  persist();
+}
+
+/* ============== persistence & auto-load of data.csv ==============
+   Entries are kept in this browser's localStorage, and on every page
+   load the app also fetches ./data.csv from the same folder (works on
+   GitHub Pages / any static host) and merges any new entries from it.
+   Committing a fresh Shotsy export as data.csv updates the online app. */
+const STORE_KEY = 'shottrack-v1';
+function persist() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      doses: state.doses, weights: state.weights, days: state.days, unit: state.unit,
+    }));
+  } catch (e) { /* private window / storage blocked — in-memory only */ }
+}
+function restore() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (!s) return;
+    if (Array.isArray(s.doses)) state.doses = s.doses;
+    if (Array.isArray(s.weights)) state.weights = s.weights;
+    if (s.days && typeof s.days === 'object') state.days = s.days;
+    if (s.unit === 'kg' || s.unit === 'lb') state.unit = s.unit;
+  } catch (e) { /* corrupt or blocked storage — start fresh */ }
+}
+function autoLoadCSV() {
+  if (location.protocol === 'file:') return;   // fetch() can't read local files
+  fetch('data.csv', {cache: 'no-store'})
+    .then(r => (r.ok ? r.text() : null))
+    .then(txt => {
+      if (!txt || !txt.trim()) return;
+      const n = importRows(parseCSVText(txt));
+      if (n) { renderAll(); showMsg('Loaded ' + n + ' entries from data.csv'); }
+    })
+    .catch(() => {});   // no data.csv in this folder — that's fine
+}
+
+$('#doseForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const date = $('#doseDate').value; if (!date) return;
+  state.doses.push({id: newId(), date, time: $('#doseTime').value || '09:00',
+    mg: parseFloat($('#doseMg').value), site: $('#doseSite').value,
+    pain: num($('#dosePain').value) || 0, notes: $('#doseNotes').value.trim()});
+  $('#doseNotes').value = ''; $('#dosePain').value = ''; $('#doseDate').value = todayISO();
+  renderAll(); showMsg('Dose logged');
+});
+$('#wtForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const date = $('#wtDate').value, raw = num($('#wtKg').value);
+  if (!date || raw == null) return;
+  const kg = state.unit === 'kg' ? raw : raw / 2.2046226218;
+  state.weights = state.weights.filter(w => w.date !== date);   // one weight per day
+  state.weights.push({id: newId(), date, kg: roundN(kg,2), fat: num($('#wtFat').value), muscle: num($('#wtMuscle').value)});
+  $('#wtKg').value = ''; $('#wtFat').value = ''; $('#wtMuscle').value = ''; $('#wtDate').value = todayISO();
+  renderAll(); showMsg('Weight logged');
+});
+document.querySelectorAll('.seg:not(.medseg)').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.seg:not(.medseg)').forEach(x => x.setAttribute('aria-pressed', 'false'));
+  b.setAttribute('aria-pressed', 'true');
+  state.range = b.dataset.range;
+  renderAll();
+}));
+document.querySelectorAll('.medseg').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.medseg').forEach(x => x.setAttribute('aria-pressed', 'false'));
+  b.setAttribute('aria-pressed', 'true');
+  state.medRange = b.dataset.medrange;
+  renderMedChart();
+}));
+$('#themeToggle').addEventListener('click', () => {
+  const root = document.documentElement;
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  renderAll();
+});
+$('#unitToggle').addEventListener('click', () => {
+  state.unit = state.unit === 'kg' ? 'lb' : 'kg';
+  $('#unitToggle').textContent = state.unit;
+  $('#wtUnitLbl').textContent = state.unit;
+  renderAll();
+});
+$('#importBtn').addEventListener('click', () => $('#fileInput').click());
+$('#fileInput').addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
+$('#exportBtn').addEventListener('click', exportCSV);
+$('#sampleBtn').addEventListener('click', loadSample);
+let clearArmed = false, clearT = null;
+$('#clearBtn').addEventListener('click', () => {
+  if (!state.doses.length && !state.weights.length) return;
+  if (!clearArmed) {
+    clearArmed = true;
+    $('#clearBtn').textContent = 'Really clear all?';
+    showMsg('Click again to delete everything — export a CSV first if you want a backup');
+    clearT = setTimeout(() => { clearArmed = false; $('#clearBtn').textContent = 'Clear all'; }, 4000);
+    return;
+  }
+  clearTimeout(clearT); clearArmed = false;
+  $('#clearBtn').textContent = 'Clear all';
+  state.doses = []; state.weights = []; state.days = {};
+  renderAll(); showMsg('All entries cleared');
+});
+
+$('#medChartBox').addEventListener('pointermove', medPointerMove);
+$('#medChartBox').addEventListener('pointerleave', medPointerLeave);
+$('#wtChartBox').addEventListener('pointermove', wtPointerMove);
+$('#wtChartBox').addEventListener('pointerleave', wtPointerLeave);
+
+let rsT = null;
+window.addEventListener('resize', () => { clearTimeout(rsT); rsT = setTimeout(renderAll, 150); });
+
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.dataset.theme = 'dark';
+$('#doseDate').value = todayISO();
+$('#wtDate').value = todayISO();
+restore();
+$('#unitToggle').textContent = state.unit;
+$('#wtUnitLbl').textContent = state.unit;
+renderAll();
+autoLoadCSV();
+</script>
+</body>
+</html>
