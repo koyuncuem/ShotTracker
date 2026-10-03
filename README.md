@@ -2,7 +2,7 @@
 
 A single-file Mounjaro (tirzepatide) dose & weight tracker. No build step, no backend — just open `index.html`.
 
-**Live app:** enable GitHub Pages for this repo (see below) and open `https://<your-username>.github.io/<repo-name>/`
+**Live app:** enable GitHub Pages for this repo (see below) and open `https://koyuncuem.github.io/ShotTracker/`
 
 ## Features
 
