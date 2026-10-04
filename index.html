@@ -186,6 +186,25 @@
     z-index: 20; max-width: 90vw;
   }
   .msg.show { opacity: 1; }
+  dialog#syncDlg {
+    border: 1px solid var(--border); border-radius: 14px; background: var(--surface-1);
+    color: var(--text-primary); max-width: 520px; width: calc(100vw - 48px);
+    padding: 22px; box-shadow: 0 18px 50px rgba(0,0,0,.25);
+  }
+  dialog#syncDlg::backdrop { background: rgba(0,0,0,.45); }
+  dialog#syncDlg h3 { margin: 0 0 10px; font-size: 17px; }
+  dialog#syncDlg p { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0 0 10px; }
+  dialog#syncDlg code, dialog#syncDlg em { color: var(--text-primary); font-style: normal; }
+  dialog#syncDlg label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; }
+  dialog#syncDlg input {
+    display: block; width: 100%; margin-top: 4px; box-sizing: border-box;
+    background: var(--surface-2, var(--page)); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13.5px;
+  }
+  dialog#syncDlg .sync-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  dialog#syncDlg .sync-row label { flex: 1 1 120px; }
+  dialog#syncDlg .sync-note { font-size: 12px; color: var(--text-muted); }
+  dialog#syncDlg .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -203,6 +222,7 @@
       <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none">
       <button class="btn" id="importBtn">Import</button>
       <button class="btn" id="exportBtn">Export CSV</button>
+      <button class="btn" id="syncBtn" title="Commit data.csv to GitHub automatically">Sync: off</button>
     </div>
   </header>
 
@@ -333,7 +353,6 @@
         <p class="card-sub" id="histCount"></p>
       </div>
       <div class="spacer"></div>
-      <button class="btn subtle" id="sampleBtn">Load sample data</button>
       <button class="btn subtle danger-text" id="clearBtn">Clear all</button>
     </div>
     <div style="overflow-x:auto">
@@ -348,9 +367,32 @@
 
   <footer>
     Estimates are based on a simple pharmacokinetic model (~5-day half-life) and are for personal tracking only — not medical advice.<br>
-    Data lives in this page only. <strong>Export CSV</strong> saves your data in the exact Shotsy CSV format; <strong>Import</strong> accepts Shotsy exports (CSV/Excel) directly, so you can move between the two apps freely.
+    Your data is remembered by this browser and loaded from <code>data.csv</code> next to the app. Turn on <strong>Sync</strong> to commit every change back to <code>data.csv</code> on GitHub automatically, so all your devices stay up to date. <strong>Export CSV</strong> / <strong>Import</strong> use the exact Shotsy format, so you can move between the two apps freely.
   </footer>
 </div>
+
+<dialog id="syncDlg">
+  <form>
+    <h3>GitHub sync</h3>
+    <p>When sync is on, every dose or weight you add is committed to <code>data.csv</code> in your GitHub repository a few seconds later — so the repo stays your single source of truth and other devices pick the change up automatically.</p>
+    <p><strong>One-time setup — create a token:</strong> on GitHub go to <em>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</em>. Under <em>Repository access</em> choose <em>Only select repositories</em> and pick this repo. Under <em>Permissions → Repository permissions</em> set <em>Contents</em> to <em>Read and write</em>. Generate, copy, and paste it below.</p>
+    <label>Personal access token
+      <input type="password" id="ghToken" autocomplete="off" placeholder="github_pat_…">
+    </label>
+    <div class="sync-row">
+      <label>Owner <input type="text" id="ghOwner" autocomplete="off"></label>
+      <label>Repository <input type="text" id="ghRepo" autocomplete="off"></label>
+      <label>Branch <input type="text" id="ghBranch" autocomplete="off" placeholder="main"></label>
+    </div>
+    <p class="sync-note">The token is stored only in this browser (localStorage), never anywhere else. Use a fine-grained token limited to this one repository — anyone who obtains the token can edit whatever it can reach.</p>
+    <div class="form-actions">
+      <button class="btn primary" id="syncSave">Save &amp; turn on</button>
+      <button class="btn subtle" id="syncCancel">Cancel</button>
+      <div class="spacer"></div>
+      <button class="btn subtle danger-text" id="syncOff">Turn off &amp; forget token</button>
+    </div>
+  </form>
+</dialog>
 
 <div class="msg" id="msg"></div>
 
@@ -469,22 +511,23 @@ function renderTiles() {
     const u = el('span','unit'); u.textContent = ' mg'; v.append(u);
   }, d => {
     if (!ds.length) { d.textContent = 'no doses yet'; return; }
-    const last = ds[ds.length-1];
-    const days = Math.floor((now - doseTs(last)) / DAY);
-    d.textContent = fmtD(doseTs(last)) + ' · ' + (days === 0 ? 'today' : days + (days === 1 ? ' day ago' : ' days ago'));
+    d.textContent = fmtDY(doseTs(ds[ds.length-1]));
   });
 
-  // next dose (weekly)
-  tile('Next dose due', v => {
+  // days since last shot (no fixed schedule — gaps vary with dose)
+  tile('Since last shot', v => {
     if (!ds.length) { v.textContent = '—'; return; }
-    const nextTs = doseTs(ds[ds.length-1]) + 7 * DAY;
-    const dLeft = Math.ceil((nextTs - now) / DAY);
-    v.textContent = dLeft <= 0 ? 'Now' : dLeft;
-    if (dLeft > 0) { const u = el('span','unit'); u.textContent = dLeft === 1 ? ' day' : ' days'; v.append(u); }
+    const days = Math.floor((now - doseTs(ds[ds.length-1])) / DAY);
+    v.textContent = days;
+    const u = el('span','unit'); u.textContent = days === 1 ? ' day' : ' days'; v.append(u);
   }, d => {
-    if (!ds.length) { d.textContent = 'weekly schedule'; return; }
-    const nextTs = doseTs(ds[ds.length-1]) + 7 * DAY;
-    d.textContent = nextTs <= now ? 'was due ' + fmtD(nextTs) : fmtDY(nextTs);
+    if (!ds.length) { d.textContent = 'log a dose to see this'; return; }
+    const gaps = [];
+    for (let i = Math.max(1, ds.length - 6); i < ds.length; i++)
+      gaps.push((doseTs(ds[i]) - doseTs(ds[i-1])) / DAY);
+    if (!gaps.length) { d.textContent = 'first dose'; return; }
+    const med = gaps.sort((a,b)=>a-b)[Math.floor(gaps.length / 2)];
+    d.textContent = 'your recent gap ~' + roundN(med, 0) + ' days';
   });
 }
 
@@ -835,10 +878,10 @@ function dayAvgLevel(dateISO) {
   for (let h = 0; h < 24; h++) sum += medLevelAt(new Date(dateISO + 'T00:30').getTime() + h * 3600e3);
   return sum / 24;
 }
-function exportCSV() {
+function buildCSVText() {
   const qq = v => '"' + String(v ?? '').replace(/"/g,'""') + '"';
   const allDates = [...state.doses.map(d => d.date), ...state.weights.map(w => w.date), ...Object.keys(state.days)].sort();
-  if (!allDates.length) { showMsg('Nothing to export yet'); return; }
+  if (!allDates.length) return null;
   const doseByDate = {}, wtByDate = {};
   state.doses.forEach(d => { if (!doseByDate[d.date]) doseByDate[d.date] = d; });
   state.weights.forEach(w => { wtByDate[w.date] = w; });
@@ -861,7 +904,13 @@ function exportCSV() {
       qq(day.notes || ''),
     ].join(','));
   }
-  const blob = new Blob([lines.join('\n') + '\n'], {type: 'text/csv;charset=utf-8'});
+  return lines.join('\n') + '\n';
+}
+
+function exportCSV() {
+  const text = buildCSVText();
+  if (!text) { showMsg('Nothing to export yet'); return; }
+  const blob = new Blob([text], {type: 'text/csv;charset=utf-8'});
   const a = document.createElement('a');
   const now = new Date(), p = n => String(n).padStart(2,'0');
   a.href = URL.createObjectURL(blob);
@@ -1057,25 +1106,6 @@ function loadSheetJS() {
   return sheetJSPromise;
 }
 
-/* ======================= sample data ======================= */
-function loadSample() {
-  const now = new Date(); now.setHours(9,0,0,0);
-  const iso = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  const weeksAgo = n => { const d = new Date(now); d.setDate(d.getDate() - 7*n); return d; };
-  const daysAgo = n => { const d = new Date(now); d.setDate(d.getDate() - n); return d; };
-  state.doses = []; state.weights = []; state.days = {};
-  const plan = [[11,2.5],[10,2.5],[9,2.5],[8,2.5],[7,5],[6,5],[5,5],[4,5],[3,7.5],[2,7.5],[1,7.5],[0,7.5]];
-  plan.forEach(([wk, mg]) => state.doses.push({id: newId(), date: iso(weeksAgo(wk)), time: '09:00', mg, site: '', notes: ''}));
-  let kg = 96.4;
-  for (let d = 80; d >= 0; d -= 4) {
-    kg -= (0.22 + Math.sin(d) * 0.12 + (d < 40 ? 0.12 : 0));
-    state.weights.push({id: newId(), date: iso(daysAgo(d)), kg: roundN(kg,1),
-      fat: d % 12 === 0 ? roundN(33 - (80-d)*0.045,1) : null,
-      muscle: d % 12 === 0 ? roundN(36 + (80-d)*0.02,1) : null});
-  }
-  renderAll(); showMsg('Sample data loaded — Clear all removes it');
-}
-
 /* ======================= events & init ======================= */
 function renderAll() {
   renderTiles(); renderMedChart(); renderWtChart(); renderTable();
@@ -1094,7 +1124,110 @@ function persist() {
       doses: state.doses, weights: state.weights, days: state.days, unit: state.unit,
     }));
   } catch (e) { /* private window / storage blocked — in-memory only */ }
+  scheduleSync();
 }
+
+/* ============== GitHub auto-sync of data.csv ==============
+   With a fine-grained personal access token (Contents: read & write on this
+   one repo), every change is committed back to data.csv on GitHub a few
+   seconds later, so other devices pick it up through the normal data.csv
+   auto-load. The token lives only in this browser's localStorage. */
+const GH_KEY = 'shottrack-gh';
+let ghCfg = null;
+try { ghCfg = JSON.parse(localStorage.getItem(GH_KEY)); } catch (e) {}
+function ghDefaults() {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
+  const seg = location.pathname.split('/').filter(Boolean);
+  return { owner: m ? m[1] : '', repo: (m && seg.length) ? seg[0] : '', branch: 'main' };
+}
+function b64utf8(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = ''; const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return btoa(bin);
+}
+function utf8FromB64(b) {
+  const bin = atob(b.replace(/\s/g, ''));
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(arr);
+}
+function setSyncUI(st) {
+  const b = $('#syncBtn'); if (!b) return;
+  b.textContent = {off: 'Sync: off', on: 'Sync', pending: 'Sync…', syncing: 'Syncing…', ok: 'Sync ✓', err: 'Sync ⚠'}[st] || 'Sync';
+  b.classList.toggle('danger-text', st === 'err');
+}
+let syncT = null, syncing = false, syncQueued = false, syncRetried = false;
+function scheduleSync() {
+  if (!ghCfg || !ghCfg.token) return;
+  clearTimeout(syncT);
+  syncT = setTimeout(syncNow, 2500);
+  setSyncUI('pending');
+}
+async function syncNow() {
+  if (!ghCfg || !ghCfg.token) return;
+  if (syncing) { syncQueued = true; return; }
+  syncing = true; setSyncUI('syncing');
+  try {
+    const api = 'https://api.github.com/repos/' + ghCfg.owner + '/' + ghCfg.repo + '/contents/data.csv';
+    const H = { Authorization: 'Bearer ' + ghCfg.token, Accept: 'application/vnd.github+json' };
+    const text = buildCSVText() || (SHOTSY_HEADER + '\n');
+    let sha;
+    const g = await fetch(api + '?ref=' + encodeURIComponent(ghCfg.branch), { headers: H, cache: 'no-store' });
+    if (g.ok) {
+      const j = await g.json();
+      sha = j.sha;
+      if (j.content != null && utf8FromB64(j.content) === text) {   // nothing changed — no empty commits
+        setSyncUI('ok'); syncRetried = false; return;
+      }
+    } else if (g.status !== 404) throw new Error('read ' + g.status);
+    const body = { message: 'Update data.csv from ShotTrack app', content: b64utf8(text), branch: ghCfg.branch };
+    if (sha) body.sha = sha;
+    const put = await fetch(api, { method: 'PUT', headers: H, body: JSON.stringify(body) });
+    if (put.status === 409 || put.status === 422) {        // concurrent edit — refetch sha and retry once
+      if (!syncRetried) { syncRetried = true; scheduleSync(); return; }
+      throw new Error('conflict');
+    }
+    if (!put.ok) throw new Error('write ' + put.status);
+    syncRetried = false;
+    setSyncUI('ok'); showMsg('data.csv updated on GitHub');
+  } catch (e) {
+    setSyncUI('err');
+    showMsg('GitHub sync failed — check your token and connection (Sync button for settings)');
+  } finally {
+    syncing = false;
+    if (syncQueued) { syncQueued = false; scheduleSync(); }
+  }
+}
+function openSyncDialog() {
+  const d = ghDefaults();
+  $('#ghOwner').value = (ghCfg && ghCfg.owner) || d.owner;
+  $('#ghRepo').value = (ghCfg && ghCfg.repo) || d.repo;
+  $('#ghBranch').value = (ghCfg && ghCfg.branch) || d.branch;
+  $('#ghToken').value = (ghCfg && ghCfg.token) || '';
+  $('#syncDlg').showModal();
+}
+$('#syncBtn').addEventListener('click', openSyncDialog);
+$('#syncSave').addEventListener('click', e => {
+  e.preventDefault();
+  const token = $('#ghToken').value.trim();
+  const owner = $('#ghOwner').value.trim(), repo = $('#ghRepo').value.trim(), branch = $('#ghBranch').value.trim() || 'main';
+  if (!token || !owner || !repo) { showMsg('Token, owner and repository are all needed'); return; }
+  ghCfg = { token, owner, repo, branch };
+  try { localStorage.setItem(GH_KEY, JSON.stringify(ghCfg)); } catch (err) {}
+  $('#syncDlg').close();
+  showMsg('Sync is on — saving current data to GitHub…');
+  scheduleSync();
+});
+$('#syncOff').addEventListener('click', e => {
+  e.preventDefault();
+  ghCfg = null;
+  try { localStorage.removeItem(GH_KEY); } catch (err) {}
+  $('#syncDlg').close();
+  setSyncUI('off');
+  showMsg('Sync turned off — the token was removed from this browser');
+});
+$('#syncCancel').addEventListener('click', e => { e.preventDefault(); $('#syncDlg').close(); });
 function restore() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY));
@@ -1162,7 +1295,6 @@ $('#unitToggle').addEventListener('click', () => {
 $('#importBtn').addEventListener('click', () => $('#fileInput').click());
 $('#fileInput').addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ''; });
 $('#exportBtn').addEventListener('click', exportCSV);
-$('#sampleBtn').addEventListener('click', loadSample);
 let clearArmed = false, clearT = null;
 $('#clearBtn').addEventListener('click', () => {
   if (!state.doses.length && !state.weights.length) return;
@@ -1194,6 +1326,7 @@ $('#wtDate').value = todayISO();
 restore();
 $('#unitToggle').textContent = state.unit;
 $('#wtUnitLbl').textContent = state.unit;
+setSyncUI(ghCfg && ghCfg.token ? 'on' : 'off');
 renderAll();
 autoLoadCSV();
 </script>

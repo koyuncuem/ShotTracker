@@ -12,17 +12,17 @@ A single-file Mounjaro (tirzepatide) dose & weight tracker. No build step, no ba
 - Import Shotsy CSV/Excel exports; export back to Shotsy-compatible CSV
 - Light/dark theme, works on phone screens
 
-## How your data gets in
+## How your data gets in — and stays in sync
 
-The app looks for a **`data.csv`** file **in the same folder as `index.html`** every time the page loads, and merges any new entries from it (duplicates are skipped). So:
+The app looks for a **`data.csv`** file **in the same folder as `index.html`** every time the page loads, and merges any new entries from it (duplicates are skipped).
 
-1. Export your data from Shotsy (or from the app itself via **Export CSV**)
-2. Replace `data.csv` in this repo with that file (keep the name `data.csv`)
-3. Commit & push — the online app picks it up on the next page reload
+**Automatic sync (recommended):** click the **Sync** button in the app and follow the instructions there. You create a fine-grained GitHub personal access token once (Settings → Developer settings → Personal access tokens → Fine-grained tokens; Repository access: *only this repo*; Permissions → Contents: *Read and write*), paste it into the app, and from then on every dose/weight you add, edit, or delete is committed back to `data.csv` on GitHub within seconds. Other devices pick it up on their next page load. The token is stored only in that browser's localStorage. Set it up once per browser/device you log from.
 
-Easiest way without the command line: on the repo page, click `data.csv` → pencil icon (or **Add file → Upload files**) and upload the new export.
+**Manual route (works without a token):** export from Shotsy (or via **Export CSV** in the app) and upload the file as `data.csv` on the repo page (click `data.csv` → upload/replace). The online app picks it up on the next reload.
 
-Anything you log directly in the online app is also remembered by your browser (localStorage), so manual entries survive reloads on the same device. `data.csv` is what syncs across devices.
+Anything you log directly in the app is also remembered by your browser (localStorage), so entries survive reloads even before a sync completes.
+
+Note: because `data.csv` auto-load only ever *adds* entries, a deletion made on one device can reappear on another device that still has the entry in its browser memory — delete it there too (it will sync the deletion back).
 
 > ⚠️ This repo is public if you use free GitHub Pages — your `data.csv` (weights, doses) is visible to anyone with the link.
 
