@@ -214,7 +214,7 @@
     <div class="logo">💉</div>
     <div>
       <h1>ShotTrack</h1>
-      <div class="sub">Mounjaro dose &amp; weight tracker</div>
+      <div class="sub">Mounjaro &amp; Retatrutide dose and weight tracker</div>
     </div>
     <div class="header-actions">
       <button class="btn subtle" id="unitToggle" title="Switch weight unit">kg</button>
@@ -240,7 +240,7 @@
     <div class="card-head">
       <div>
         <h2>Medication in your system</h2>
-        <p class="card-sub">Estimated active tirzepatide, based on a ~5-day half-life</p>
+        <p class="card-sub">Estimated active medication — Mounjaro ~5-day, Retatrutide ~6-day half-life</p>
       </div>
       <div class="spacer"></div>
       <div role="group" aria-label="Medication chart range" style="display:flex;gap:4px">
@@ -286,11 +286,14 @@
             <input type="time" id="doseTime" value="09:00">
           </div>
           <div>
-            <label for="doseMg">Dose (mg)</label>
-            <select id="doseMg">
-              <option>2.5</option><option>5</option><option>7.5</option>
-              <option>10</option><option>12.5</option><option>15</option>
+            <label for="doseDrug">Medication</label>
+            <select id="doseDrug">
+              <option>Mounjaro</option><option>Retatrutide</option>
             </select>
+          </div>
+          <div>
+            <label for="doseMg">Dose (mg)</label>
+            <select id="doseMg"></select>
           </div>
           <div>
             <label for="doseSite">Injection site (optional)</label>
@@ -406,29 +409,50 @@ const state = {
   medRange: 'all', // 7 | 30 | 90 | all — scopes the medication chart only
   unit: 'kg',      // kg | lb
 };
-const HALF_LIFE_DAYS = 5;
-const KE = Math.LN2 / HALF_LIFE_DAYS;   // elimination rate /day
+/* per-drug pharmacokinetics & standard dose levels */
+const DRUGS = {
+  Mounjaro:    { halfLife: 5, doses: [2.5, 5, 7.5, 10, 12.5, 15] },   // tirzepatide ~5-day half-life
+  Retatrutide: { halfLife: 6, doses: [2, 4, 6, 8, 10, 12] },          // retatrutide ~6-day half-life
+};
+const drugOf = d => (d && d.drug) || 'Mounjaro';
+const keFor = drug => Math.LN2 / (DRUGS[drug] || DRUGS.Mounjaro).halfLife;  // elimination rate /day
 const KA = 2.0;                          // absorption rate /day (peak ≈ 1.4 d post-injection)
 const DAY = 86400000;
 let uid = 1;
 const newId = () => 'e' + (uid++);
 
-/* dose → color: high-contrast categorical palette (validated adjacent-pair CVD ΔE ≥ 8 in both modes).
-   Mapping is FIXED per dose level so a dose always keeps its color: 2.5→blue, 5→green, 7.5→magenta,
-   10→yellow, 12.5→aqua, 15→orange. Both charts share this map. */
-const CAT_LIGHT = ['#2a78d6','#008300','#e87ba4','#eda100','#1baf7a','#eb6834','#4a3aa7','#e34948'];
-const CAT_DARK  = ['#3987e5','#008300','#d55181','#c98500','#199e70','#d95926','#9085e9','#e66767'];
-const STD_DOSES = [2.5, 5, 7.5, 10, 12.5, 15];
+/* dose → color: high-contrast categorical palettes, one per drug, validated for
+   adjacent-pair CVD separation in both modes. Mapping is FIXED per (drug, dose)
+   so a dose always keeps its color across filters and imports:
+   Mounjaro  2.5→blue  5→green   7.5→magenta 10→yellow 12.5→aqua 15→orange
+   Reta      2→olive   4→violet  6→brown     8→teal    10→red    12→fuchsia
+   Both charts share this map. */
+const MJ_LIGHT   = ['#2a78d6','#008300','#e87ba4','#eda100','#1baf7a','#eb6834'];
+const MJ_DARK    = ['#3987e5','#008300','#d55181','#c98500','#199e70','#d95926'];
+const RETA_LIGHT = ['#4d7c0f','#4a3aa7','#92400e','#0d9488','#e34948','#c026d3'];
+const RETA_DARK  = ['#7f9c2e','#9085e9','#b45309','#0d9488','#e34948','#d946ef'];
+const doseKey = d => drugOf(d) + '|' + d.mg;
+const doseKeyCmp = (a, b) => {
+  const [da, ma] = a.split('|'), [db, mb] = b.split('|');
+  return da === db ? (+ma - +mb) : (da === 'Mounjaro' ? -1 : 1);
+};
+function doseLabel(key) {
+  const [drug, mg] = key.split('|');
+  return (drug === 'Retatrutide' ? 'Reta ' : '') + mg + ' mg';
+}
 function doseColorMap() {
-  const pal = document.documentElement.dataset.theme === 'dark' ? CAT_DARK : CAT_LIGHT;
+  const dark = document.documentElement.dataset.theme === 'dark';
   const map = new Map();
-  STD_DOSES.forEach((mg, i) => map.set(mg, pal[i]));
-  // custom doses take the remaining slots, then fall back to the nearest standard level's color
-  const extras = [...new Set(state.doses.map(d => d.mg))].filter(m => !map.has(m)).sort((a,b)=>a-b);
-  let next = STD_DOSES.length;
-  for (const mg of extras) {
-    if (next < pal.length) map.set(mg, pal[next++]);
-    else map.set(mg, map.get(STD_DOSES.reduce((p,c) => Math.abs(c-mg) < Math.abs(p-mg) ? c : p)));
+  DRUGS.Mounjaro.doses.forEach((mg, i) => map.set('Mounjaro|' + mg, (dark ? MJ_DARK : MJ_LIGHT)[i]));
+  DRUGS.Retatrutide.doses.forEach((mg, i) => map.set('Retatrutide|' + mg, (dark ? RETA_DARK : RETA_LIGHT)[i]));
+  // a custom mg borrows the nearest standard level's color for its drug
+  for (const d of state.doses) {
+    const k = doseKey(d);
+    if (!map.has(k)) {
+      const drug = drugOf(d), std = (DRUGS[drug] || DRUGS.Mounjaro).doses;
+      const nearest = std.reduce((p, c) => Math.abs(c - d.mg) < Math.abs(p - d.mg) ? c : p);
+      map.set(k, map.get(drug + '|' + nearest));
+    }
   }
   return map;
 }
@@ -456,13 +480,14 @@ function el(tag, cls) { const e = document.createElement(tag); if (cls) e.classN
 
 /* ======================= pharmacokinetics ======================= */
 /* amount in body from one dose D at t days post-injection (one-compartment, first-order absorption) */
-function amountFromDose(D, tDays) {
+function amountFromDose(D, tDays, drug) {
   if (tDays <= 0) return 0;
-  return D * KA / (KA - KE) * (Math.exp(-KE * tDays) - Math.exp(-KA * tDays));
+  const ke = keFor(drug);
+  return D * KA / (KA - ke) * (Math.exp(-ke * tDays) - Math.exp(-KA * tDays));
 }
 function medLevelAt(ts) {
   let sum = 0;
-  for (const d of state.doses) sum += amountFromDose(d.mg, (ts - doseTs(d)) / DAY);
+  for (const d of state.doses) sum += amountFromDose(d.mg, (ts - doseTs(d)) / DAY, drugOf(d));
   return sum;
 }
 
@@ -501,7 +526,12 @@ function renderTiles() {
     if (!ds.length) { v.textContent = '—'; return; }
     v.textContent = roundN(medLevelAt(now), 2);
     const u = el('span','unit'); u.textContent = ' mg'; v.append(u);
-  }, d => d.textContent = ds.length ? '~' + HALF_LIFE_DAYS + '-day half-life model' : 'log a dose to see this');
+  }, d => {
+    if (!ds.length) { d.textContent = 'log a dose to see this'; return; }
+    const hasReta = ds.some(x => drugOf(x) === 'Retatrutide'), hasMJ = ds.some(x => drugOf(x) !== 'Retatrutide');
+    d.textContent = hasReta && hasMJ ? 'half-life model · MJ 5d / Reta 6d'
+      : hasReta ? '~6-day half-life model' : '~5-day half-life model';
+  });
 
   // last dose
   tile('Last dose', v => {
@@ -511,7 +541,8 @@ function renderTiles() {
     const u = el('span','unit'); u.textContent = ' mg'; v.append(u);
   }, d => {
     if (!ds.length) { d.textContent = 'no doses yet'; return; }
-    d.textContent = fmtDY(doseTs(ds[ds.length-1]));
+    const last = ds[ds.length-1];
+    d.textContent = drugOf(last) + ' · ' + fmtDY(doseTs(last));
   });
 
   // days since last shot (no fixed schedule — gaps vary with dose)
@@ -628,8 +659,8 @@ function renderMedChart() {
   const usedMg = new Set();
   for (const s of segs) {
     if (s.pts.length < 2) continue;
-    const color = s.dose ? cmap.get(s.dose.mg) : fallback;
-    if (s.dose) usedMg.add(s.dose.mg);
+    const color = s.dose ? cmap.get(doseKey(s.dose)) : fallback;
+    if (s.dose) usedMg.add(doseKey(s.dose));
     if (!s.future) {
       const a = path(s.pts) + ` L ${xs(s.pts[s.pts.length-1][0]).toFixed(1)} ${ys(0)} L ${xs(s.pts[0][0]).toFixed(1)} ${ys(0)} Z`;
       svg.append(svgEl('path', {d: a, fill: color, opacity: 0.09}));
@@ -642,7 +673,7 @@ function renderMedChart() {
   // dose markers
   for (const d of ds) {
     const ts = doseTs(d); if (ts < t0 || ts > t1) continue;
-    svg.append(svgEl('circle', {cx: xs(ts), cy: ys(medLevelAt(ts + 1)), r: 4.5, fill: cmap.get(d.mg), stroke: 'var(--surface-1)', 'stroke-width': 2}));
+    svg.append(svgEl('circle', {cx: xs(ts), cy: ys(medLevelAt(ts + 1)), r: 4.5, fill: cmap.get(doseKey(d)), stroke: 'var(--surface-1)', 'stroke-width': 2}));
   }
 
   // "now" marker + current value label
@@ -659,7 +690,7 @@ function renderMedChart() {
   box.append(svg);
 
   // legend: dose colors shared with the weight chart, plus the projection key
-  [...usedMg].sort((a,b)=>a-b).forEach(mg => legend.append(legendKey(cmap.get(mg), mg + ' mg', false)));
+  [...usedMg].sort(doseKeyCmp).forEach(k => legend.append(legendKey(cmap.get(k), doseLabel(k), false)));
   legend.append(legendKey(fallback, 'projection', true));
 
   medHover = { t0, t1, W, xs, ys, cross, dot, svg, cmap, activeAt };
@@ -673,7 +704,7 @@ function medPointerMove(ev) {
   const t = medHover.t0 + (px - PAD.l) / (medHover.W - PAD.l - PAD.r) * (medHover.t1 - medHover.t0);
   const v = medLevelAt(t);
   const active = medHover.activeAt(t);
-  const color = active ? medHover.cmap.get(active.mg) : getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
+  const color = active ? medHover.cmap.get(doseKey(active)) : getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
   medHover.cross.setAttribute('x1', medHover.xs(t)); medHover.cross.setAttribute('x2', medHover.xs(t));
   medHover.cross.setAttribute('visibility', 'visible');
   medHover.dot.setAttribute('cx', medHover.xs(t)); medHover.dot.setAttribute('cy', medHover.ys(v));
@@ -684,7 +715,7 @@ function medPointerMove(ev) {
   const row = el('div','tt-row');
   const k = el('span','tt-key'); k.style.borderTopColor = color;
   const val = el('span','tt-val'); val.textContent = roundN(v, 2) + ' mg';
-  const lbl = el('span','tt-lbl'); lbl.textContent = active ? 'in system · last shot ' + active.mg + ' mg' : 'in system';
+  const lbl = el('span','tt-lbl'); lbl.textContent = active ? 'in system · last shot ' + doseLabel(doseKey(active)) : 'in system';
   row.append(k, val, lbl); tip.append(dEl, row);
   tip.style.display = 'block';
   const tipX = Math.min(ev.clientX - r.left + 14, r.width - tip.offsetWidth - 6);
@@ -730,7 +761,7 @@ function renderWtChart() {
 
   const cmap = doseColorMap();
   const fallback = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
-  const segColor = w => { const d = activeDoseAt(wtTs(w)); return d ? cmap.get(d.mg) : fallback; };
+  const segColor = w => { const d = activeDoseAt(wtTs(w)); return d ? cmap.get(doseKey(d)) : fallback; };
 
   // colored segments
   for (let i = 0; i < ws.length - 1; i++) {
@@ -763,8 +794,8 @@ function renderWtChart() {
 
   // legend: dose levels present in view (plus 'no dose yet' if applicable)
   const seen = new Set();
-  ws.forEach(w => { const d = activeDoseAt(wtTs(w)); seen.add(d ? d.mg : null); });
-  [...seen].filter(m => m !== null).sort((a,b)=>a-b).forEach(mg => legend.append(legendKey(cmap.get(mg), mg + ' mg', false)));
+  ws.forEach(w => { const d = activeDoseAt(wtTs(w)); seen.add(d ? doseKey(d) : null); });
+  [...seen].filter(m => m !== null).sort(doseKeyCmp).forEach(k => legend.append(legendKey(cmap.get(k), doseLabel(k), false)));
   if (seen.has(null)) legend.append(legendKey(fallback, 'before first dose', false));
 
   wtHover = { ws, t0, t1, W, xs, ys, cross, dot, cmap, fallback };
@@ -791,9 +822,9 @@ function wtPointerMove(ev) {
   const dEl = el('div','tt-date'); dEl.textContent = fmtDY(wtTs(best));
   tip.append(dEl);
   const row1 = el('div','tt-row');
-  const k1 = el('span','tt-key'); k1.style.borderTopColor = d ? wtHover.cmap.get(d.mg) : wtHover.fallback;
+  const k1 = el('span','tt-key'); k1.style.borderTopColor = d ? wtHover.cmap.get(doseKey(d)) : wtHover.fallback;
   const v1 = el('span','tt-val'); v1.textContent = roundN(dispW(best.kg)) + ' ' + state.unit;
-  const l1 = el('span','tt-lbl'); l1.textContent = d ? 'on ' + d.mg + ' mg' : 'before first dose';
+  const l1 = el('span','tt-lbl'); l1.textContent = d ? 'on ' + doseLabel(doseKey(d)) : 'before first dose';
   row1.append(k1, v1, l1); tip.append(row1);
   if (best.fat != null || best.muscle != null) {
     const row2 = el('div','tt-row');
@@ -845,11 +876,11 @@ function renderTable() {
     const tdDate = el('td','num'); tdDate.textContent = fmtDY(r.ts) + (r.kind === 'dose' && r.e.time ? ' ' + r.e.time : '');
     const tdKind = el('td');
     const dotEl = el('span','type-dot');
-    dotEl.style.background = r.kind === 'dose' ? (cmap.get(r.e.mg) || 'var(--accent)') : 'var(--text-muted)';
+    dotEl.style.background = r.kind === 'dose' ? (cmap.get(doseKey(r.e)) || 'var(--accent)') : 'var(--text-muted)';
     tdKind.append(dotEl, document.createTextNode(r.kind === 'dose' ? 'Dose' : 'Weight'));
     const tdVal = el('td','num');
     const strong = el('span','strong');
-    strong.textContent = r.kind === 'dose' ? r.e.mg + ' mg' : roundN(dispW(r.e.kg)) + ' ' + state.unit;
+    strong.textContent = r.kind === 'dose' ? doseLabel(doseKey(r.e)) : roundN(dispW(r.e.kg)) + ' ' + state.unit;
     tdVal.append(strong);
     const tdFat = el('td','num'); tdFat.textContent = r.kind === 'weight' && r.e.fat != null ? r.e.fat + '%' : '—';
     const tdMus = el('td','num'); tdMus.textContent = r.kind === 'weight' && r.e.muscle != null ? r.e.muscle + '%' : '—';
@@ -893,7 +924,7 @@ function buildCSVText() {
     lines.push([
       date,
       trimNum(dayAvgLevel(date)),
-      qq(d ? 'Mounjaro ' + trimNum(d.mg) + 'mg' : ''),
+      qq(d ? drugOf(d) + ' ' + trimNum(d.mg) + 'mg' : ''),
       qq(d ? d.time || '' : ''),
       qq(d ? d.site || 'Unknown' : ''),
       qq(d ? Number(d.pain || 0).toFixed(1) : ''),
@@ -983,7 +1014,7 @@ function importShotsy(rows, header) {
     dnote: f(h => h === 'day notes'),
   };
   let added = 0;
-  const doseKeys = new Set(state.doses.map(d => d.date + '|' + d.mg));
+  const doseKeys = new Set(state.doses.map(d => d.date + '|' + drugOf(d) + '|' + d.mg));
   const wtKeys = new Set(state.weights.map(w => w.date));
   const get = (r, idx) => idx === -1 || r[idx] == null ? '' : String(r[idx]).trim();
   for (let i = 1; i < rows.length; i++) {
@@ -994,10 +1025,11 @@ function importShotsy(rows, header) {
     const mgMatch = shot.match(/(\d+(?:[.,]\d+)?)\s*mg/i);
     if (mgMatch) {
       const mg = parseFloat(mgMatch[1].replace(',', '.'));
-      if (!doseKeys.has(date + '|' + mg)) {
-        doseKeys.add(date + '|' + mg);
+      const drug = /reta/i.test(shot) ? 'Retatrutide' : 'Mounjaro';
+      if (!doseKeys.has(date + '|' + drug + '|' + mg)) {
+        doseKeys.add(date + '|' + drug + '|' + mg);
         const site = get(r, ci.site);
-        state.doses.push({id: newId(), date, time: get(r, ci.time).slice(0,5) || '09:00', mg,
+        state.doses.push({id: newId(), date, time: get(r, ci.time).slice(0,5) || '09:00', mg, drug,
           site: site === 'Unknown' ? '' : site, pain: num(get(r, ci.pain)) || 0, notes: get(r, ci.snote)});
         added++;
       }
@@ -1254,7 +1286,7 @@ $('#doseForm').addEventListener('submit', e => {
   e.preventDefault();
   const date = $('#doseDate').value; if (!date) return;
   state.doses.push({id: newId(), date, time: $('#doseTime').value || '09:00',
-    mg: parseFloat($('#doseMg').value), site: $('#doseSite').value,
+    mg: parseFloat($('#doseMg').value), drug: $('#doseDrug').value, site: $('#doseSite').value,
     pain: num($('#dosePain').value) || 0, notes: $('#doseNotes').value.trim()});
   $('#doseNotes').value = ''; $('#dosePain').value = ''; $('#doseDate').value = todayISO();
   renderAll(); showMsg('Dose logged');
@@ -1321,6 +1353,16 @@ window.addEventListener('resize', () => { clearTimeout(rsT); rsT = setTimeout(re
 
 if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
   document.documentElement.dataset.theme = 'dark';
+function fillDoseOptions() {
+  const sel = $('#doseMg'), cur = sel.value;
+  sel.innerHTML = '';
+  (DRUGS[$('#doseDrug').value] || DRUGS.Mounjaro).doses.forEach(mg => {
+    const o = document.createElement('option'); o.textContent = mg; sel.append(o);
+  });
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+$('#doseDrug').addEventListener('change', fillDoseOptions);
+fillDoseOptions();
 $('#doseDate').value = todayISO();
 $('#wtDate').value = todayISO();
 restore();

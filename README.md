@@ -1,6 +1,6 @@
 # ShotTrack
 
-A single-file Mounjaro (tirzepatide) dose & weight tracker. No build step, no backend — just open `index.html`.
+A single-file Mounjaro (tirzepatide) and Retatrutide dose & weight tracker. Each drug has its own dose levels (Mounjaro 2.5–15 mg, Retatrutide 2–12 mg), its own half-life in the model (5 d vs 6 d), and its own chart colors. No build step, no backend — just open `index.html`.
 
 **Live app:** enable GitHub Pages for this repo (see below) and open `https://koyuncuem.github.io/ShotTracker/`
 
